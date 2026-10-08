@@ -602,21 +602,19 @@
             {#if room.player.key !== 0}<span class="badge accent">{keyLabel(room.player.key)}</span>{/if}
             {#if turnText}<span class="badge accent turn">{turnText}</span>{/if}
           </div>
-          <div class="transport" class:mine={isMyTurn}>
-            {#if isMyTurn}
-              <button onclick={togglePause}>
-                {room.player.paused ? `▶ ${t('room.play')}` : `⏸ ${t('room.pause')}`}
-              </button>
-              <button onclick={restart}>⟲ {t('room.restart')}</button>
-            {/if}
-            <button onclick={skip}>⏭ {t('room.skip')}</button>
-            {#if isMyTurn}
-              <button class="more" onclick={moreControls} aria-label={t('room.moreControls')}>⋯</button>
-            {/if}
-          </div>
         {:else}
           <div class="muted nothing">{t('room.nothingPlaying')}</div>
         {/if}
+        <!-- Always shown, so the layout never jumps: pause, restart and "⋯" belong to
+             the singer whose turn it is; anyone may skip. Disabled when not allowed. -->
+        <div class="transport">
+          <button onclick={togglePause} disabled={!isMyTurn}>
+            {room.player.paused && room.current ? `▶ ${t('room.play')}` : `⏸ ${t('room.pause')}`}
+          </button>
+          <button onclick={restart} disabled={!isMyTurn}>⟲ {t('room.restart')}</button>
+          <button onclick={skip} disabled={!room.current}>⏭ {t('room.skip')}</button>
+          <button class="more" onclick={moreControls} disabled={!isMyTurn} aria-label={t('room.moreControls')}>⋯</button>
+        </div>
       </section>
 
       {#if !room.player.online}
@@ -852,11 +850,8 @@
   /* Pause, restart and skip: same size, same weight, side by side; "⋯" is narrower. */
   .transport {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
-  .transport.mine {
     grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 6px;
   }
   .transport button {
     font-size: 0.9rem;

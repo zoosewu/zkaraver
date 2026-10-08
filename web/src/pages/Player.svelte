@@ -10,7 +10,12 @@
   let { roomId }: { roomId: string } = $props()
 
   const INTRO_MS = 5000
-  const MAX_DRIFT_S = 0.3
+  // Alternate-track sync (see syncAlt): jump beyond JUMP_S, otherwise nudge the
+  // track's speed by NUDGE until it is within NUDGE_STOP_S again.
+  const JUMP_S = 1
+  const NUDGE_START_S = 0.08
+  const NUDGE_STOP_S = 0.02
+  const NUDGE = 0.03
 
   type Phase = 'checking' | 'playing' | 'kicked' | 'superseded' | 'notFound'
   let phase = $state<Phase>('checking')
@@ -199,7 +204,10 @@
   $effect(() => {
     void loaded
     const r = rate
-    if (video) video.playbackRate = r
+    if (video) {
+      video.defaultPlaybackRate = r
+      video.playbackRate = r
+    }
     for (const el of tracks.values()) el.playbackRate = r
   })
 
@@ -226,6 +234,62 @@
         if (e.name === 'NotAllowedError') blocked = true
       })
   }
+
+  // ---- the video element ----
+  // One <video> for the whole session. TVs have very few hardware decoders and may
+  // not free a removed element's decoder in time for the next song, so songs only
+  // swap its source, and between songs it is emptied to release the decoder.
+  let videoStalled = false
+  let retried = false
+
+  $effect(() => {
+    const v = video
+    const item = loaded
+    if (!v) return
+    untrack(() => {
+      if (!item) {
+        releaseVideo()
+        return
+      }
+      retried = false
+      videoStalled = false
+      v.src = `/media/${item.songId}`
+      v.defaultPlaybackRate = rate // a new source resets playbackRate to this
+      v.playbackRate = rate
+      if (paused) v.pause()
+      else tryPlay()
+    })
+  })
+
+  function releaseVideo() {
+    if (!video?.getAttribute('src')) return
+    video.pause()
+    video.removeAttribute('src')
+    video.load()
+  }
+
+  onDestroy(releaseVideo)
+
+  function videoError() {
+    const item = loaded
+    if (!item || !video?.getAttribute('src')) return // an emptied player, not a song
+    const err = video.error
+    dbg.error = err ? `${err.code} ${err.message}` : 'unknown'
+    // One retry (a TV may still be releasing the previous decoder) before giving up.
+    if (!retried) {
+      retried = true
+      const at = video.currentTime
+      video.src = `/media/${item.songId}?retry=${Date.now()}`
+      video.addEventListener('loadedmetadata', () => (video!.currentTime = at), { once: true })
+      tryPlay()
+      return
+    }
+    report(true)
+  }
+
+  // ---- diagnostics: add ?debug to the player URL ----
+  const debug = new URLSearchParams(location.search).has('debug')
+  const dbg = $state({ drift: 0, jumps: 0, stalls: 0, buffered: 0, error: '' })
 
   // ---- alternate audio: the karaoke video plays muted under another track ----
   // Used for original vocals (audio from the original-vocal file, never key-shifted)
@@ -311,13 +375,32 @@
     for (const src of [...tracks.keys()]) dropTrack(src)
   })
 
+  // Keeping tracks on the video's clock. Small drift is corrected by playing the
+  // track slightly faster or slower (inaudible, pitch is kept); only a large gap,
+  // e.g. after the video stalled or was seeked, is closed with a jump. While the
+  // video buffers, the tracks wait for it instead of running ahead.
   function syncAlt() {
+    const v = video
+    if (v && debug) {
+      const end = v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0
+      dbg.buffered = Math.max(0, end - v.currentTime)
+    }
     for (const el of tracks.values()) {
-      if (!video || video.paused || video.ended) {
+      if (!v || v.paused || v.ended || videoStalled) {
         if (!el.paused) el.pause()
         continue
       }
-      if (Math.abs(el.currentTime - video.currentTime) > MAX_DRIFT_S) el.currentTime = video.currentTime
+      const drift = el.currentTime - v.currentTime // > 0: the track is ahead
+      if (audible && tracks.get(audible) === el) dbg.drift = drift
+      if (Math.abs(drift) > JUMP_S) {
+        el.currentTime = v.currentTime
+        el.playbackRate = rate
+        if (!el.muted) dbg.jumps++
+      } else if (Math.abs(drift) > NUDGE_START_S) {
+        el.playbackRate = rate * (drift > 0 ? 1 - NUDGE : 1 + NUDGE)
+      } else if (Math.abs(drift) < NUDGE_STOP_S) {
+        el.playbackRate = rate
+      }
       if (el.paused) el.play().catch(() => {})
     }
   }
@@ -358,6 +441,31 @@
   <div class="stage" onclick={unlock}>
     <!-- Alternate audio tracks live here (see addTrack); audio needs no layout. -->
     <div bind:this={audioHost} hidden></div>
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video
+      bind:this={video}
+      class:hidden={!loaded}
+      autoplay
+      playsinline
+      onended={() => {
+        syncAlt()
+        if (loaded) report(false)
+      }}
+      onerror={videoError}
+      onplay={syncAlt}
+      onpause={syncAlt}
+      onseeked={syncAlt}
+      ontimeupdate={syncAlt}
+      onwaiting={() => {
+        videoStalled = true
+        if (loaded) dbg.stalls++
+        syncAlt()
+      }}
+      onplaying={() => {
+        videoStalled = false
+        syncAlt()
+      }}
+    ></video>
     {#if room && !active}
       <div class="idle">
         <h1>{room.settings.name}</h1>
@@ -365,24 +473,6 @@
         <p class="url">{t('player.waitingHint')}</p>
       </div>
     {:else}
-      {#if loaded}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          bind:this={video}
-          src={`/media/${loaded.songId}`}
-          autoplay
-          playsinline
-          onended={() => {
-            syncAlt()
-            report(false)
-          }}
-          onerror={() => report(true)}
-          onplay={syncAlt}
-          onpause={syncAlt}
-          onseeked={syncAlt}
-          ontimeupdate={syncAlt}
-        ></video>
-      {/if}
 
       {#if intro}
         <div class="intro">
@@ -430,6 +520,11 @@
       </div>
     {/if}
 
+    {#if debug}
+      <div class="debug">
+        drift {(dbg.drift * 1000).toFixed(0)} ms · jumps {dbg.jumps} · stalls {dbg.stalls} · buffer {dbg.buffered.toFixed(1)} s{#if audible} · {audible}{/if}{#if dbg.error}<br />error {dbg.error}{/if}
+      </div>
+    {/if}
     {#if wakeFallback}
       <video class="nosleep" src="/nosleep.mp4" muted loop autoplay playsinline aria-hidden="true"></video>
     {/if}
@@ -509,6 +604,19 @@
     height: 100%;
     object-fit: contain;
     background: #000;
+  }
+  video.hidden {
+    display: none;
+  }
+  .debug {
+    position: absolute;
+    right: 1vw;
+    bottom: 1vh;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 0.5vh 1vw;
+    border-radius: 8px;
+    font: 1.6vh monospace;
+    pointer-events: none;
   }
   .intro,
   .idle {

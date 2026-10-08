@@ -38,6 +38,9 @@ test.describe('room page on a phone', () => {
   test('pause, restart and skip are equal buttons that ask first', async ({ browser }) => {
     const room = await createRoom(cookie)
     const { page, user } = await openPhone(browser, room, '小明')
+    // With nothing playing the controls stay in place, just disabled.
+    await expect(page.locator('.transport button')).toHaveCount(4)
+    for (const b of await page.locator('.transport button').all()) await expect(b).toBeDisabled()
     await enqueue(room, user, await songId('晴天'))
 
     const buttons = page.locator('.transport button:not(.more)')

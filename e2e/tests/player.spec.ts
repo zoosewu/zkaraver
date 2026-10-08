@@ -207,3 +207,28 @@ test('player: a key that is not rendered yet plays the original key and switches
   await expect.poll(() => audioSrc(page)).toBe(`/media/${song}/key/-4`)
   await expect.poll(async () => (await media(page)).muted).toBe(true)
 })
+
+test('player: songs play one after another on the same video element', async ({ page }) => {
+  const cookie = await adminCookie()
+  const room = await createRoom(cookie)
+  const user = await newUser(room, 'singer')
+  for (const n of ['01', '02', '03']) await enqueue(room, user, await songId(`Song ${n}`)) // fillers, 2 s each
+
+  await page.goto(`/r/${room}/player`)
+  const video = page.locator('video:not(.nosleep)')
+  await expect.poll(async () => (await media(page)).vt, { timeout: 15_000 }).toBeGreaterThan(0.5)
+  // TVs have few hardware decoders: one element for the whole session, emptied
+  // between songs so its decoder is released, never a second one.
+  await video.evaluate((v) => ((window as any).__video = v))
+  await expect(page.locator('.intro')).toBeVisible({ timeout: 15_000 }) // the next song's card
+  expect(await video.getAttribute('src')).toBeNull()
+  for (let i = 0; i < 2; i++) {
+    await expect.poll(async () => (await media(page)).vt, { timeout: 15_000 }).toBeGreaterThan(0.5)
+    await expect(video).toHaveCount(1)
+    expect(await video.evaluate((v) => v === (window as any).__video)).toBe(true)
+    await expect.poll(async () => (await media(page)).vt, { timeout: 15_000 }).toBeLessThan(0.5) // next song (or emptied)
+  }
+  await expect(page.locator('.idle h1')).toHaveText(room, { timeout: 15_000 })
+  const history = await (await fetch(`${BASE}/api/admin/rooms/${room}/history`, { headers: { Cookie: cookie } })).json()
+  expect(history.map((h: { status: string }) => h.status)).toEqual(['done', 'done', 'done'])
+})
