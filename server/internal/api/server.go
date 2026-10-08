@@ -37,6 +37,10 @@ type Server struct {
 func init() {
 	// Not in Go's built-in table; browsers expect this for the PWA manifest.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+	// Original-vocal audio files (see library.OriginalAudioExtensions).
+	for ext, typ := range map[string]string{".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".aac": "audio/aac", ".ogg": "audio/ogg", ".opus": "audio/ogg"} {
+		_ = mime.AddExtensionType(ext, typ)
+	}
 }
 
 func New(cfg *config.Config, d *sql.DB, lib *library.Library, rooms *room.Manager, keyR *keys.Renderer, static fs.FS) (*Server, error) {

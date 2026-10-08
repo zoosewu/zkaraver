@@ -89,6 +89,11 @@ func (l *Library) StartScan() bool {
 	return true
 }
 
+// OriginalAudioExtensions are accepted for original-vocal companions besides the
+// video extensions. Only the sound of an original is played, so audio files
+// (best: .m4a) are smaller and seek more precisely than videos.
+var OriginalAudioExtensions = []string{".m4a", ".mp3", ".aac", ".ogg", ".opus"}
+
 type fileInfo struct {
 	size, mtime int64
 }
@@ -113,12 +118,19 @@ func (l *Library) scan() Result {
 	files := map[string]fileInfo{}
 	originals := map[string]string{} // song stem (rel path without ext) -> original rel path
 	err := walkFollowingLinks(root, func(rel string, info fs.FileInfo) {
-		if !slices.Contains(l.cfg.Extensions, strings.ToLower(path.Ext(rel))) {
-			return
-		}
+		ext := strings.ToLower(path.Ext(rel))
+		video := slices.Contains(l.cfg.Extensions, ext)
 		stem := strings.TrimSuffix(rel, path.Ext(rel))
 		if suf := l.cfg.OriginalSuffix; suf != "" && strings.HasSuffix(stem, suf) {
-			originals[strings.TrimSuffix(stem, suf)] = rel
+			audio := slices.Contains(OriginalAudioExtensions, ext)
+			key := strings.TrimSuffix(stem, suf)
+			// An audio-only original is preferred over a video one: the TV only plays its sound.
+			if audio || (video && !slices.Contains(OriginalAudioExtensions, strings.ToLower(path.Ext(originals[key])))) {
+				originals[key] = rel
+			}
+			return
+		}
+		if !video {
 			return
 		}
 		files[rel] = fileInfo{size: info.Size(), mtime: info.ModTime().Unix()}

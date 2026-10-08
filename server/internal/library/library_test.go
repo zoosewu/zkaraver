@@ -91,6 +91,10 @@ func TestScan(t *testing.T) {
 	for _, f := range []string{
 		"周杰倫 - 晴天.mp4",
 		"周杰倫 - 晴天_original.mp4", // companion, not a song
+		"孫燕姿 - 遇見.mp4",
+		"孫燕姿 - 遇見_original.mp4",
+		"孫燕姿 - 遇見_original.m4a",    // audio-only companion wins over the video one
+		"Someone - Audio only.m4a", // not a song: only videos are songs
 		"sub/Queen - Bohemian Rhapsody.MP4",
 		"沒有分隔符.mp4",
 		".hidden.mp4",
@@ -101,11 +105,11 @@ func TestScan(t *testing.T) {
 	}
 
 	res := scan(t, l)
-	if res.Added != 3 || res.Total != 3 {
+	if res.Added != 4 || res.Total != 4 {
 		t.Fatalf("first scan = %+v", res)
 	}
 	got := titles(t, l, "")
-	want := []string{"|沒有分隔符", "Queen|Bohemian Rhapsody", "周杰倫|晴天"}
+	want := []string{"|沒有分隔符", "Queen|Bohemian Rhapsody", "周杰倫|晴天", "孫燕姿|遇見"}
 	if len(got) != len(want) {
 		t.Fatalf("songs = %v, want %v", got, want)
 	}
@@ -120,6 +124,10 @@ func TestScan(t *testing.T) {
 	if err != nil || orig != "周杰倫 - 晴天_original.mp4" {
 		t.Fatalf("original = %q, %v", orig, err)
 	}
+	meet, _, _ := l.Search("遇見", 10, 0)
+	if orig, err := l.OriginalPath(meet[0].ID); err != nil || orig != "孫燕姿 - 遇見_original.m4a" {
+		t.Fatalf("audio original = %q, %v", orig, err)
+	}
 	queen, _, _ := l.Search("queen", 10, 0)
 	if _, err := l.OriginalPath(queen[0].ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("song without original: %v", err)
@@ -130,10 +138,10 @@ func TestScan(t *testing.T) {
 		t.Fatalf("idle rescan = %+v", res)
 	}
 	os.Remove(filepath.Join(media, "沒有分隔符.mp4"))
-	if res := scan(t, l); res.Removed != 1 || res.Total != 2 {
+	if res := scan(t, l); res.Removed != 1 || res.Total != 3 {
 		t.Fatalf("rescan after delete = %+v", res)
 	}
-	if n, _ := l.Count(); n != 2 {
+	if n, _ := l.Count(); n != 3 {
 		t.Fatalf("count = %d", n)
 	}
 	// Bringing it back reuses the same row.
