@@ -127,6 +127,24 @@ test('player: key change from server renders, speed and ±3 s seeking', async ({
   const hz = await trackPitch(page, `/media/${song}/key/2`) // 440 × 2^(2/12) ≈ 494 Hz
   expect(Math.abs(hz - 493.9) / 493.9).toBeLessThan(0.02)
 
+  // Switching tracks hands over without a gap: the karaoke video's own sound is
+  // never let through in between (watched on every frame).
+  await page.evaluate(() => {
+    const w = window as any
+    const v = document.querySelector('video:not(.nosleep)') as HTMLVideoElement
+    w.__heardVideo = false
+    const tick = () => {
+      if (!v.muted) w.__heardVideo = true
+      requestAnimationFrame(tick)
+    }
+    tick()
+  })
+  await control(room, cookie, 'key', 3)
+  await expect.poll(() => audioSrc(page)).toBe(`/media/${song}/key/3`)
+  await expect.poll(() => page.evaluate(() => document.querySelectorAll('audio').length)).toBe(1)
+  await expect.poll(async () => (await media(page)).aPaused).toBe(false)
+  expect(await page.evaluate(() => (window as any).__heardVideo)).toBe(false)
+
   // Volume and speed apply to the track.
   await control(room, cookie, 'volume', 20)
   await expect.poll(() => page.evaluate(() => document.querySelector('audio')!.volume)).toBeCloseTo(0.2)

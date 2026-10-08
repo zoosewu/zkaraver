@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import Marquee from '../components/Marquee.svelte'
   import { api } from '../lib/api'
   import { t } from '../lib/i18n'
@@ -17,7 +17,6 @@
   let room = $state<RoomState | null>(null)
   let roomUrl = $state('')
   let video = $state<HTMLVideoElement>()
-  let alt = $state<HTMLAudioElement>()
 
   // The item whose video is loaded, and whether its "up next" intro is showing.
   let loaded = $state<QueueItem | null>(null)
@@ -182,7 +181,7 @@
   $effect(() => {
     const v = volume / 100
     if (video) video.volume = v
-    if (alt) alt.volume = v
+    for (const el of tracks.values()) el.volume = v
   })
 
   let lastNonce: number | null = null
@@ -201,7 +200,7 @@
     void loaded
     const r = rate
     if (video) video.playbackRate = r
-    if (alt) alt.playbackRate = r
+    for (const el of tracks.values()) el.playbackRate = r
   })
 
   // Relative seek (±3 s from the admin page). The original-vocal track follows
@@ -231,42 +230,101 @@
   // ---- alternate audio: the karaoke video plays muted under another track ----
   // Used for original vocals (audio from the original-vocal file, never key-shifted)
   // and for key changes (audio rendered at another key by the server).
-  // Files are assumed to share a timeline. The track follows the video's clock;
-  // the video is muted only once the track is actually audible.
-  let altPlaying = $state(false)
-  let altFailed = $state('') // src that failed to load: fall back to the video's audio
+  // Files are assumed to share a timeline and follow the video's clock.
+  //
+  // Switching hands over without a gap: the new track loads and starts playing
+  // muted, in sync, while the current sound continues; only once it is actually
+  // playing does it become audible and the previous one go away. Going back to
+  // the video's own sound is instant, since that is always in sync.
+  let audioHost = $state<HTMLDivElement>()
+  const tracks = new Map<string, HTMLAudioElement>()
+  let audible = $state('') // src heard now; '' = the video's own sound
+  let altFailed = $state('') // src that failed to load: keep the video's sound
 
   const altSrc = $derived.by(() => {
     if (!loaded) return ''
     if (vocal && loaded.hasOriginal) return `/media/${loaded.songId}/original`
     return keyReady ? `/media/${loaded.songId}/key/${key}` : ''
   })
-  const altActive = $derived(altSrc !== '' && altSrc !== altFailed)
+  const altTarget = $derived(altSrc === altFailed ? '' : altSrc)
 
-  function syncAlt() {
-    if (!alt || !video) return
-    if (!altActive || video.paused || video.ended) {
-      if (!alt.paused) alt.pause()
+  $effect(() => {
+    const want = altTarget
+    void audioHost
+    untrack(() => switchTo(want))
+  })
+
+  function switchTo(want: string) {
+    for (const src of [...tracks.keys()]) if (src !== want && src !== audible) dropTrack(src)
+    if (want === '') {
+      makeAudible('')
       return
     }
-    if (Math.abs(alt.currentTime - video.currentTime) > MAX_DRIFT_S) alt.currentTime = video.currentTime
-    if (alt.paused) alt.play().catch(() => {})
-  }
-
-  $effect(() => {
-    void altActive
-    void alt
+    if (!tracks.has(want) && audioHost) addTrack(want)
     syncAlt()
+  }
+
+  function addTrack(src: string) {
+    const el = document.createElement('audio')
+    el.preload = 'auto'
+    el.muted = true // until it takes over
+    el.volume = volume / 100
+    el.playbackRate = rate
+    const takeOver = () => {
+      if (src === altTarget && audible !== src) makeAudible(src)
+    }
+    el.addEventListener('loadedmetadata', syncAlt)
+    el.addEventListener('playing', takeOver)
+    // While the video is paused nothing plays; take over as soon as it could.
+    el.addEventListener('canplay', () => {
+      if (!video || video.paused) takeOver()
+    })
+    el.addEventListener('error', () => {
+      altFailed = src
+      if (audible === src) makeAudible('')
+      dropTrack(src)
+    })
+    el.src = src
+    tracks.set(src, el)
+    audioHost!.append(el)
+  }
+
+  function makeAudible(src: string) {
+    const previous = audible
+    if (src) tracks.get(src)!.muted = false
+    audible = src
+    if (video) video.muted = src !== ''
+    if (previous && previous !== src) dropTrack(previous)
+  }
+
+  function dropTrack(src: string) {
+    const el = tracks.get(src)
+    if (!el) return
+    tracks.delete(src)
+    el.pause()
+    el.removeAttribute('src')
+    el.load() // stop downloading
+    el.remove()
+  }
+
+  onDestroy(() => {
+    for (const src of [...tracks.keys()]) dropTrack(src)
   })
+
+  function syncAlt() {
+    for (const el of tracks.values()) {
+      if (!video || video.paused || video.ended) {
+        if (!el.paused) el.pause()
+        continue
+      }
+      if (Math.abs(el.currentTime - video.currentTime) > MAX_DRIFT_S) el.currentTime = video.currentTime
+      if (el.paused) el.play().catch(() => {})
+    }
+  }
 
   $effect(() => {
-    if (video) video.muted = altActive && altPlaying
+    if (video) video.muted = audible !== ''
   })
-
-  function altError(src: string) {
-    altPlaying = false
-    altFailed = src
-  }
 
   function report(failed: boolean) {
     const item = loaded
@@ -298,6 +356,8 @@
 {:else}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="stage" onclick={unlock}>
+    <!-- Alternate audio tracks live here (see addTrack); audio needs no layout. -->
+    <div bind:this={audioHost} hidden></div>
     {#if room && !active}
       <div class="idle">
         <h1>{room.settings.name}</h1>
@@ -322,20 +382,6 @@
           onseeked={syncAlt}
           ontimeupdate={syncAlt}
         ></video>
-        {#if altSrc}
-          {#key altSrc}
-            <audio
-              bind:this={alt}
-              src={altSrc}
-              preload="metadata"
-              onloadedmetadata={syncAlt}
-              onplaying={() => (altPlaying = true)}
-              onpause={() => (altPlaying = false)}
-              onwaiting={() => (altPlaying = false)}
-              onerror={() => altError(altSrc)}
-            ></audio>
-          {/key}
-        {/if}
       {/if}
 
       {#if intro}
