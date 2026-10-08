@@ -5,3 +5,5 @@ web/dist/
 *.db-wal
 *.db-shm
 /data/
+/keys/
+/e2e/keys/

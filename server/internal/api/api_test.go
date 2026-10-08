@@ -75,7 +75,7 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(cfg, d, lib, rooms, keys.New(cfg.DataDir, cfg.MediaDir, lib), fstest.MapFS{"index.html": {Data: []byte("<html>spa</html>")}})
+	s, err := New(cfg, d, lib, rooms, keys.New(filepath.Join(cfg.DataDir, "keycache"), cfg.MediaDir, lib), fstest.MapFS{"index.html": {Data: []byte("<html>spa</html>")}})
 	if err != nil {
 		t.Fatal(err)
 	}

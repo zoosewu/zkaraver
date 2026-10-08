@@ -59,6 +59,7 @@ jobs:
           PUBLIC_URL=http://localhost:8088
           ADMIN_PASSWORD=test-pass
           MEDIA_PATH=./e2e/media
+          KEYS_PATH=./e2e/keys
           PORT=8088
           ORIGINAL_SUFFIX=_original
           EOF

@@ -49,7 +49,7 @@ func main() {
 	defer database.Close()
 
 	lib := library.New(database, cfg)
-	keyR := keys.New(cfg.DataDir, cfg.MediaDir, lib)
+	keyR := keys.New(cfg.KeysDir, cfg.MediaDir, lib)
 	lib.OnScan = keyR.Cleanup // drops renders of changed videos
 	lib.StartScan()
 

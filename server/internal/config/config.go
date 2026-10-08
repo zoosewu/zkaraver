@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,6 +16,8 @@ type Config struct {
 	AdminPassword string
 	MediaDir      string
 	DataDir       string
+	// KeysDir holds songs rendered at other keys (package keys); can be large.
+	KeysDir string
 
 	// Filename parsing: "artist-title", "title-artist" or "title".
 	FilenameFormat    string
@@ -32,9 +35,13 @@ func Load() (*Config, error) {
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		MediaDir:          env("MEDIA_DIR", "/media"),
 		DataDir:           env("DATA_DIR", "/data"),
+		KeysDir:           strings.TrimSpace(os.Getenv("KEYS_DIR")),
 		FilenameFormat:    env("FILENAME_FORMAT", "artist-title"),
 		FilenameSeparator: os.Getenv("FILENAME_SEPARATOR"), // spaces are significant, so no trimming
 		OriginalSuffix:    strings.TrimSpace(os.Getenv("ORIGINAL_SUFFIX")),
+	}
+	if c.KeysDir == "" {
+		c.KeysDir = filepath.Join(c.DataDir, "keycache")
 	}
 	if c.FilenameSeparator == "" {
 		c.FilenameSeparator = " - "

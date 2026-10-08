@@ -11,7 +11,10 @@ services:
       FILENAME_SEPARATOR: ${FILENAME_SEPARATOR:-}
       ORIGINAL_SUFFIX: ${ORIGINAL_SUFFIX:-}
       MEDIA_EXTENSIONS: ${MEDIA_EXTENSIONS:-}
+      # Songs rendered at other keys (can grow large), kept out of the song folder.
+      KEYS_DIR: /keys
       GOMEMLIMIT: 64MiB
     volumes:
       - ./data:/data
+      - ${KEYS_PATH:-./keys}:/keys
       - ${MEDIA_PATH:?set MEDIA_PATH in .env}:/media:ro

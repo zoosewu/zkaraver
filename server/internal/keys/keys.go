@@ -100,9 +100,10 @@ type Renderer struct {
 }
 
 // New detects ffmpeg; without it (the slim image) key change is unavailable.
-func New(dataDir, mediaDir string, lib Library) *Renderer {
+// Renders are stored in dir.
+func New(dir, mediaDir string, lib Library) *Renderer {
 	k := &Renderer{
-		dir: filepath.Join(dataDir, "keycache"), mediaDir: mediaDir, lib: lib,
+		dir: dir, mediaDir: mediaDir, lib: lib,
 		wake: make(chan struct{}, 1), indexed: make(chan struct{}), ready: map[int64]map[int]string{}, failed: map[string]bool{},
 	}
 	path, err := exec.LookPath("ffmpeg")
@@ -121,6 +122,7 @@ func New(dataDir, mediaDir string, lib Library) *Renderer {
 	}
 	k.ffmpeg = path
 	k.nice, _ = exec.LookPath("nice")
+	log.Printf("key change: renders are stored in %s", k.dir)
 	return k
 }
 
