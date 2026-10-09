@@ -31,8 +31,8 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["zkaraver", "healthcheck"]
 ENTRYPOINT ["zkaraver"]
 
-# Default image (tag "latest"): with ffmpeg + Rubber Band, which renders songs at
-# other keys ahead of time (server/internal/keys). Debian, because Alpine's ffmpeg
+# Default image (tag "latest"): with ffmpeg and the Rubber Band tool, which render
+# songs at other keys ahead of time (server/internal/keys). Debian, because Alpine's ffmpeg
 # is built without librubberband. Has a shell for troubleshooting
 # (`docker compose exec zkaraver sh`).
 # Runs as root so a bind-mounted ./data that Docker creates (root-owned) is writable;
@@ -43,7 +43,7 @@ ARG DEBIAN_MIRROR=
 RUN if [ -n "$DEBIAN_MIRROR" ]; then \
       sed -i "s|URIs: http://deb.debian.org/debian\$|URIs: $DEBIAN_MIRROR|" /etc/apt/sources.list.d/debian.sources; \
     fi \
-    && apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get update && apt-get install -y --no-install-recommends ffmpeg rubberband-cli \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=server /out/zkaraver /usr/local/bin/zkaraver
 ENV LISTEN=:8080 DATA_DIR=/data MEDIA_DIR=/media

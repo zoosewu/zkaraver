@@ -95,7 +95,7 @@ func TestRenderOrder(t *testing.T) {
 		t.Fatalf("%d files in the cache, want 36 (3 songs × 12 keys)", len(entries))
 	}
 	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".m4a" || e.Name()[len(e.Name())-6:] != "-q.m4a" {
+		if filepath.Ext(e.Name()) != ".m4a" || !isHigh(e.Name()) {
 			t.Fatalf("leftover render %s", e.Name())
 		}
 	}
@@ -142,7 +142,7 @@ func TestCleanupDropsChangedVideos(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	slices.Sort(names)
-	want := []string{"1-10-100-+2-q.m4a", "1-10-100-+3-q.m4a", "2-20-200--1-f.m4a"}
+	want := []string{"1-10-100-+2-h.m4a", "1-10-100-+3-h.m4a", "2-20-200--1-f.m4a"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("after cleanup %v, want %v", names, want)
 	}
@@ -168,5 +168,21 @@ func TestProgress(t *testing.T) {
 	}
 	if got := songName(lib.songs[0]); got != "Singer - One" {
 		t.Fatalf("song name %q", got)
+	}
+}
+
+// Renders of earlier versions ('q', R2 high quality) keep playing until the
+// R3 render replaces them.
+func TestOlderRendersAreUpgraded(t *testing.T) {
+	lib := &fakeLib{songs: []Song{{ID: 1, Size: 1, Mtime: 1}}}
+	k := newTest(t, lib)
+	old := "1-1-1-+1-q.m4a"
+	os.WriteFile(filepath.Join(k.dir, old), nil, 0o644)
+	k.Cleanup()
+	if p, ok := k.Path(1, 1); !ok || filepath.Base(p) != old {
+		t.Fatalf("old render not served: %q %v", p, ok)
+	}
+	if j, _ := k.next(); j.semis != 1 || j.q != high {
+		t.Fatalf("first job %+v, want +1 in high quality", j)
 	}
 }

@@ -9,6 +9,10 @@
 //  3. the same again in high quality, replacing the fast renders
 //  4. every other song in the library, newest first, in high quality
 //
+// Fast renders use ffmpeg's Rubber Band filter (R2 engine, "speed"); high-quality
+// ones use the rubberband tool's R3 ("finer") engine, about four times slower but
+// clearly cleaner. Formants are not preserved: that suits voices, not full mixes.
+//
 // Original-vocal tracks are never rendered: original vocals play at their own key.
 // Renders are named after the source's size and mtime; when a video changes or
 // disappears, its renders are deleted on the next library scan.
@@ -25,6 +29,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,7 +65,7 @@ type quality byte
 
 const (
 	fast quality = 'f'
-	high quality = 'q'
+	high quality = 'h' // Rubber Band R3; 'q' (R2) renders of earlier versions get upgraded
 )
 
 type job struct {
@@ -78,11 +83,12 @@ func fileName(s Song, semis int, q quality) string {
 func songPrefix(s Song) string { return fmt.Sprintf("%d-%d-%d-", s.ID, s.Size, s.Mtime) }
 
 type Renderer struct {
-	ffmpeg   string // "" when ffmpeg with the rubberband filter is not installed
-	nice     string // run ffmpeg at low CPU priority when available
-	dir      string
-	mediaDir string
-	lib      Library
+	ffmpeg     string // "" when ffmpeg with the rubberband filter is not installed
+	nice       string // run tools at low CPU priority when available
+	rubberband string // Rubber Band command-line tool for R3 renders; "" falls back to ffmpeg (R2)
+	dir        string
+	mediaDir   string
+	lib        Library
 
 	queued  func() []int64     // queued song ids, nearest first
 	onReady func(songID int64) // a render finished
@@ -122,6 +128,10 @@ func New(dir, mediaDir string, lib Library) *Renderer {
 	}
 	k.ffmpeg = path
 	k.nice, _ = exec.LookPath("nice")
+	k.rubberband, _ = exec.LookPath("rubberband")
+	if k.rubberband == "" {
+		log.Print("key change: rubberband tool not found; high quality falls back to ffmpeg's R2 engine")
+	}
 	log.Printf("key change: renders are stored in %s", k.dir)
 	return k
 }
@@ -253,7 +263,7 @@ func (k *Renderer) Cleanup() {
 		}
 		if prev, ok := ready[id][semis]; ok {
 			// Keep the high-quality render, drop the other.
-			if strings.HasSuffix(prev, "-q.m4a") {
+			if isHigh(prev) {
 				remove(name)
 				continue
 			}
@@ -345,7 +355,7 @@ func (k *Renderer) progress() string {
 	for _, s := range songs {
 		n := 0
 		for _, name := range k.ready[s.ID] {
-			if strings.HasSuffix(name, "-q.m4a") {
+			if isHigh(name) {
 				n++
 			} else {
 				fastOnly++
@@ -453,7 +463,7 @@ func (k *Renderer) has(s Song, semis int, onlyHigh bool) bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	name, ok := k.ready[s.ID][semis]
-	return ok && (!onlyHigh || strings.HasSuffix(name, "-q.m4a"))
+	return ok && (!onlyHigh || isHigh(name))
 }
 
 func (k *Renderer) hasFailed(s Song, semis int, q quality) bool {
@@ -467,18 +477,17 @@ func (k *Renderer) render(ctx context.Context, j job) error {
 	dst := filepath.Join(k.dir, name)
 	tmp := dst + ".part"
 	src := filepath.Join(k.mediaDir, filepath.FromSlash(j.song.Path))
-	pitchq := "quality"
-	if j.q == fast {
-		pitchq = "speed"
+	var err error
+	if j.q == high && k.rubberband != "" {
+		err = k.renderFiner(ctx, src, tmp, j.semis)
+	} else {
+		pitchq := "quality"
+		if j.q == fast {
+			pitchq = "speed"
+		}
+		filter := fmt.Sprintf("rubberband=pitch=%.6f:pitchq=%s", math.Pow(2, float64(j.semis)/12), pitchq)
+		err = k.run(ctx, k.ffmpeg, append([]string{"-nostdin", "-v", "error", "-i", src, "-vn", "-map", "0:a:0", "-af", filter}, encodeArgs(tmp)...)...)
 	}
-	args := []string{"-nostdin", "-v", "error", "-i", src, "-vn", "-map", "0:a:0",
-		"-af", fmt.Sprintf("rubberband=pitch=%.6f:pitchq=%s:formant=preserved", math.Pow(2, float64(j.semis)/12), pitchq),
-		"-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-f", "mp4", "-y", tmp}
-	cmd := exec.CommandContext(ctx, k.ffmpeg, args...)
-	if k.nice != "" {
-		cmd = exec.CommandContext(ctx, k.nice, append([]string{"-n", "10", k.ffmpeg}, args...)...)
-	}
-	out, err := cmd.CombinedOutput()
 	if err != nil {
 		os.Remove(tmp)
 		if ctx.Err() != nil {
@@ -487,7 +496,7 @@ func (k *Renderer) render(ctx context.Context, j job) error {
 		k.mu.Lock()
 		k.failed[name] = true
 		k.mu.Unlock()
-		return fmt.Errorf("render %s: %v: %s", name, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("render %s: %w", name, err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
@@ -511,3 +520,40 @@ func (k *Renderer) render(ctx context.Context, j job) error {
 	}
 	return nil
 }
+
+// renderFiner renders with Rubber Band's R3 ("finer") engine, which ffmpeg's
+// filter does not offer: decode to WAV, shift with the rubberband tool, encode.
+// The intermediate files are named after the render, so Cleanup leaves them be.
+func (k *Renderer) renderFiner(ctx context.Context, src, tmp string, semis int) error {
+	in, out := tmp+".in.wav", tmp+".out.wav"
+	defer os.Remove(in)
+	defer os.Remove(out)
+	if err := k.run(ctx, k.ffmpeg, "-nostdin", "-v", "error", "-i", src, "-vn", "-map", "0:a:0", "-y", in); err != nil {
+		return err
+	}
+	if err := k.run(ctx, k.rubberband, "-3", "-p", strconv.Itoa(semis), in, out); err != nil {
+		return err
+	}
+	return k.run(ctx, k.ffmpeg, append([]string{"-nostdin", "-v", "error", "-i", out}, encodeArgs(tmp)...)...)
+}
+
+func encodeArgs(dst string) []string {
+	return []string{"-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-f", "mp4", "-y", dst}
+}
+
+// run executes a tool at low CPU priority (when nice exists), so rendering never
+// competes with serving the TVs.
+func (k *Renderer) run(ctx context.Context, bin string, args ...string) error {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if k.nice != "" {
+		cmd = exec.CommandContext(ctx, k.nice, append([]string{"-n", "10", bin}, args...)...)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %v: %s", filepath.Base(bin), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// isHigh reports whether a render is the final, highest-quality one. Renders
+// from older versions (other markers) stay usable until they are replaced.
+func isHigh(name string) bool { return strings.HasSuffix(name, "-h.m4a") }
