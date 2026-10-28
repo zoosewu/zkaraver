@@ -58,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/session", s.handleSession)
 	mux.HandleFunc("GET /api/songs", s.handleSongs)
 	mux.HandleFunc("GET /api/artists", s.handleArtists)
+	mux.HandleFunc("GET /api/folders", s.handleFolders)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /media/{id}", s.handleMedia)
 	mux.HandleFunc("GET /media/{id}/original", s.handleOriginal)

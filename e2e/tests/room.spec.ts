@@ -255,6 +255,44 @@ test('search: sort button and browsing by artist', async ({ browser }) => {
   await expect(page.locator('.search-row .sort-btn')).toContainText('數量')
 })
 
+test('search: browsing by folder', async ({ browser }) => {
+  const cookie = await adminCookie()
+  const room = await createRoom(cookie)
+  const { page } = await openPhone(browser, room, '小明')
+  const titles = () => page.locator('.scroller li .title').allTextContents()
+  const folder = (name: string) => page.locator('.folders .artist-row', { hasText: name })
+  const sortButton = page.locator('.search-row .sort-btn')
+
+  await sortButton.click()
+  await page.locator('.panel .action', { hasText: '依資料夾瀏覽' }).click()
+  await expect(sortButton).toContainText('📁')
+  // The top: its folders (with every song below them counted), then its own songs.
+  await expect(folder('精選')).toContainText('2 首')
+  await expect(page.locator('.back-row')).toHaveCount(0)
+  await expect.poll(titles).toContain('Song 01') // by artist: the fillers come first
+  expect(await titles()).not.toContain('稻香')
+
+  await folder('精選').click()
+  await expect(page.locator('.back-row')).toContainText('精選')
+  await expect(folder('日文')).toContainText('1 首')
+  await expect.poll(titles).toEqual(['稻香'])
+  await folder('日文').click()
+  await expect(page.locator('.back-row')).toContainText('精選/日文')
+  await expect(page.locator('.folders .artist-row')).toHaveCount(0)
+  await expect.poll(titles).toEqual(['唱'])
+  // Up one level, then to the top.
+  await page.locator('.back-row').click()
+  await expect(page.locator('.back-row')).toContainText('精選')
+  await page.locator('.back-row').click()
+  await expect(page.locator('.back-row')).toHaveCount(0)
+
+  // A query searches everything below the folder; only folders with a match stay.
+  await page.locator('input[type=search]').fill('唱')
+  await expect.poll(titles).toEqual(['唱'])
+  await expect(page.locator('.folders .artist-row')).toHaveCount(1)
+  await expect(folder('精選')).toContainText('1 首')
+})
+
 test('volume: the sheet stays open, and the level belongs to the TV', async ({ browser }) => {
   const cookie = await adminCookie()
   const room = await createRoom(cookie)

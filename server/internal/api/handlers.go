@@ -44,13 +44,16 @@ func (s *Server) handleSongs(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	// ?sort=artist|title|new|popular, and ?artist=<name> to browse one artist
-	// ("" is the unknown artist, so presence matters, not the value).
+	// ?sort=artist|title|new|popular, ?artist=<name> to browse one artist ("" is
+	// the unknown artist, so presence matters, not the value), and ?folder=<path>
+	// to browse one folder ("" = the top of the library).
 	songs, more, err := s.lib.SearchWith(library.SearchOptions{
 		Query:     q.Get("q"),
 		Sort:      q.Get("sort"),
 		Artist:    q.Get("artist"),
 		HasArtist: q.Has("artist"),
+		Folder:    library.CleanFolder(q.Get("folder")),
+		HasFolder: q.Has("folder"),
 	}, limit, max(offset, 0))
 	if err != nil {
 		writeErr(w, err)
@@ -659,4 +662,16 @@ func (s *Server) handleArtists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": artists, "more": more})
+}
+
+// handleFolders lists the subfolders of ?path= (default: the top of the library)
+// with their song counts; ?q= keeps only folders with a matching song.
+func (s *Server) handleFolders(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	folders, err := s.lib.Folders(library.CleanFolder(q.Get("path")), q.Get("q"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": folders})
 }

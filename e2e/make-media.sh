@@ -3,6 +3,7 @@
 #   - five songs used by name in the tests, two with very long titles
 #   - an original-vocal companion for 倔強 (audio only, a different pitch)
 #   - 70 short filler songs so search results span several pages
+#   - two songs in nested folders, for browsing by folder
 set -e
 cd "$(dirname "$0")"
 mkdir -p media
@@ -20,6 +21,9 @@ docker run --rm -v "$(pwd)/media:/m" -w /m alpine:3.22 sh -c '
   done
   mv orig.m4a "五月天 - 倔強_original.m4a"
   for i in $(seq -w 1 70); do cp short.mp4 "Filler - Song $i.mp4"; done
+  mkdir -p "精選/日文"
+  cp short.mp4 "精選/周杰倫 - 稻香.mp4"
+  cp short.mp4 "精選/日文/Ado - 唱.mp4"
   rm base.mp4 short.mp4
 '
 echo "media ready: $(ls media | wc -l) files"

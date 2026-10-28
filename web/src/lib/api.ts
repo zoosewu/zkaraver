@@ -70,11 +70,25 @@ export interface Artist {
   songs: number
 }
 
-/** artist: only that artist's songs ("" = unknown artist); omit for all. */
-export function searchSongs(q: string, offset: number, sort: SongSort = 'artist', artist?: string) {
+/**
+ * artist: only that artist's songs ("" = unknown artist); folder: only songs in that
+ * folder ("" = the top; with a query, anywhere below it). Omit either for all.
+ */
+export function searchSongs(q: string, offset: number, sort: SongSort = 'artist', artist?: string, folder?: string) {
   const p = new URLSearchParams({ q, offset: String(offset), limit: '50', sort })
   if (artist !== undefined) p.set('artist', artist)
+  if (folder !== undefined) p.set('folder', folder)
   return api<{ items: Song[]; more: boolean }>('GET', `/api/songs?${p}`)
+}
+
+export interface Folder {
+  name: string
+  songs: number // in it and all its subfolders
+}
+
+/** Subfolders of a folder ("" = the top of the library); a query keeps folders with a match. */
+export function listFolders(path: string, q: string) {
+  return api<{ items: Folder[] }>('GET', `/api/folders?${new URLSearchParams({ path, q })}`)
 }
 
 export function listArtists(q: string, offset: number, sort: ArtistSort = 'name') {

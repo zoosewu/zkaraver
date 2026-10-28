@@ -424,3 +424,64 @@ func TestSortsAndArtists(t *testing.T) {
 		t.Errorf("paging: %v %v", page, more)
 	}
 }
+
+func TestFolders(t *testing.T) {
+	l, media := newLib(t, config.Config{})
+	for _, f := range []string{
+		"Top - Song.mp4",
+		"華語/周杰倫 - 晴天.mp4",
+		"華語/男歌手/周杰倫 - 稻香.mp4",
+		"華語/女歌手/孫燕姿 - 遇見.mp4",
+		"華語/女歌手/孫燕姿 - 天黑黑.mp4",
+		"Japanese/Ado - Usseewa.mp4",
+		"華語版/X - Not inside 華語.mp4", // shares a prefix with 華語 but is another folder
+	} {
+		touch(t, media, f)
+	}
+	scan(t, l)
+	folders := func(path, q string) string {
+		fs, err := l.Folders(path, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range fs {
+			out = append(out, fmt.Sprintf("%s:%d", f.Name, f.Songs))
+		}
+		return strings.Join(out, " ")
+	}
+	songsIn := func(folder, q string) string {
+		ss, _, err := l.SearchWith(SearchOptions{Query: q, Folder: folder, HasFolder: true, Sort: SortTitle}, 50, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, s := range ss {
+			out = append(out, s.Title)
+		}
+		return strings.Join(out, " ")
+	}
+
+	if got := folders("", ""); got != "Japanese:1 華語:4 華語版:1" {
+		t.Fatalf("top folders = %q", got)
+	}
+	if got := folders("華語", ""); got != "女歌手:2 男歌手:1" {
+		t.Fatalf("華語 folders = %q", got)
+	}
+	if got := songsIn("", ""); got != "Song" {
+		t.Fatalf("songs at the top = %q", got)
+	}
+	if got := songsIn("華語", ""); got != "晴天" {
+		t.Fatalf("songs directly in 華語 = %q", got)
+	}
+	// With a query: matching songs anywhere below, and only folders that have one.
+	if got := songsIn("華語", "孫燕姿"); got != "天黑黑 遇見" {
+		t.Fatalf("search in 華語 = %q", got)
+	}
+	if got := folders("華語", "孫燕姿"); got != "女歌手:2" {
+		t.Fatalf("folders matching = %q", got)
+	}
+	if got := CleanFolder(`/華語\女歌手/../女歌手/`); got != "華語/女歌手" {
+		t.Fatalf("clean = %q", got)
+	}
+}

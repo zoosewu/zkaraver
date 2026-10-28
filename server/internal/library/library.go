@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"zkaraver/internal/config"
 	"zkaraver/internal/keys"
@@ -312,6 +313,10 @@ type SearchOptions struct {
 	// when HasArtist is set.
 	Artist    string
 	HasArtist bool
+	// Folder limits results to one folder of the media directory ("" = the top),
+	// when HasFolder is set: the songs directly in it, or with a query, anywhere below it.
+	Folder    string
+	HasFolder bool
 }
 
 // termsWhere turns a query into "instr(search, ?) > 0" conditions: every
@@ -341,6 +346,11 @@ func (l *Library) SearchWith(o SearchOptions, limit, offset int) (songs []Song, 
 	if o.HasArtist {
 		where = append(where, "artist = ?")
 		args = append(args, o.Artist)
+	}
+	if o.HasFolder {
+		w, a := folderWhere(o.Folder, o.Query == "")
+		where = append(where, w...)
+		args = append(args, a...)
 	}
 	order := "artist, title, id"
 	switch o.Sort {
@@ -406,6 +416,61 @@ func (l *Library) Artists(q, sort string, limit, offset int) (artists []Artist, 
 		return artists[:limit], true, rows.Err()
 	}
 	return artists, false, rows.Err()
+}
+
+type Folder struct {
+	Name  string `json:"name"`
+	Songs int    `json:"songs"` // in it and all its subfolders
+}
+
+// CleanFolder normalizes a folder path from a request: slash-separated,
+// relative to the media directory, no leading or trailing slash ("" = the top).
+func CleanFolder(p string) string {
+	return strings.Trim(path.Clean("/"+strings.ReplaceAll(p, "\\", "/")), "/")
+}
+
+// folderWhere limits songs to a folder: directly in it, or anywhere below it.
+// Paths are compared by characters (SQLite substr/instr count characters).
+func folderWhere(folder string, direct bool) (where []string, args []any) {
+	prefix := ""
+	if folder != "" {
+		prefix = folder + "/"
+	}
+	n := utf8.RuneCountInString(prefix)
+	where = []string{"substr(path, 1, ?) = ?"}
+	args = []any{n, prefix}
+	if direct {
+		where = append(where, "instr(substr(path, ?), '/') = 0")
+		args = append(args, n+1)
+	}
+	return where, args
+}
+
+// Folders lists the subfolders of a folder that contain songs, by name, with
+// their song counts. With a query, only subfolders with a matching song.
+func (l *Library) Folders(folder, q string) ([]Folder, error) {
+	where, args := termsWhere(q)
+	fw, fa := folderWhere(folder, false)
+	where = append(append([]string{"present = 1"}, where...), fw...)
+	args = append(args, fa...)
+	start := fa[0].(int) + 1 // first character after the folder's prefix
+	rows, err := l.db.Query(`SELECT name, COUNT(*) FROM (
+			SELECT substr(substr(path, ?), 1, instr(substr(path, ?), '/') - 1) AS name FROM songs
+			WHERE `+strings.Join(where, " AND ")+` AND instr(substr(path, ?), '/') > 0
+		) GROUP BY name ORDER BY name`, append(append([]any{start, start}, args...), start)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	folders := []Folder{}
+	for rows.Next() {
+		var f Folder
+		if err := rows.Scan(&f.Name, &f.Songs); err != nil {
+			return nil, err
+		}
+		folders = append(folders, f)
+	}
+	return folders, rows.Err()
 }
 
 var ErrNotFound = errors.New("song not found")

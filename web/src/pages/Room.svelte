@@ -7,9 +7,11 @@
     ensureSession,
     errorCode,
     listArtists,
+    listFolders,
     searchSongs,
     userToken,
     type Artist,
+    type Folder,
     type ArtistSort,
     type SongSort,
   } from '../lib/api'
@@ -89,19 +91,22 @@
     })
   })
 
-  // ---- search: a song list, or browsing by artist; view and sort are per device ----
-  type SearchView = 'songs' | 'artists'
+  // ---- search: a song list, or browsing by artist or by folder; view and sort are per device ----
+  type SearchView = 'songs' | 'artists' | 'folders'
   const SONG_SORTS: SongSort[] = ['artist', 'title', 'new', 'popular']
   const ARTIST_SORTS: ArtistSort[] = ['name', 'count']
   const pick = <T extends string>(v: string | null, options: T[]): T => (options.includes(v as T) ? (v as T) : options[0])
 
   let query = $state('')
-  let searchView = $state<SearchView>(pick(storage.get('zkaraver.searchView'), ['songs', 'artists']))
+  let searchView = $state<SearchView>(pick(storage.get('zkaraver.searchView'), ['songs', 'artists', 'folders']))
   let songSort = $state<SongSort>(pick(storage.get('zkaraver.songSort'), SONG_SORTS))
   let artistSort = $state<ArtistSort>(pick(storage.get('zkaraver.artistSort'), ARTIST_SORTS))
   // Browsing by artist: null = the artist list, otherwise that artist's songs ("" = unknown).
   let selectedArtist = $state<string | null>(null)
   const listingArtists = $derived(searchView === 'artists' && selectedArtist === null)
+  // Browsing by folder: the folder being shown ("" = the top of the library).
+  let folderPath = $state('')
+  let folders = $state<Folder[]>([])
 
   let results = $state<Song[]>([])
   let artists = $state<Artist[]>([])
@@ -119,8 +124,13 @@
         artists = offset ? [...artists, ...r.items] : r.items
         more = r.more
       } else {
-        const r = await searchSongs(q, offset, songSort, searchView === 'artists' ? (selectedArtist ?? undefined) : undefined)
+        const inFolders = searchView === 'folders'
+        const [r, subfolders] = await Promise.all([
+          searchSongs(q, offset, songSort, searchView === 'artists' ? (selectedArtist ?? undefined) : undefined, inFolders ? folderPath : undefined),
+          inFolders && offset === 0 ? listFolders(folderPath, q).then((f) => f.items) : null,
+        ])
         if (seq !== searchSeq) return
+        if (subfolders) folders = subfolders
         results = offset ? [...results, ...r.items] : r.items
         more = r.more
       }
@@ -147,7 +157,7 @@
     if (phase !== 'ready') return
     const q = query
     // Re-run when the view, sort or artist changes too.
-    void [searchView, songSort, artistSort, selectedArtist]
+    void [searchView, songSort, artistSort, selectedArtist, folderPath]
     const timer = setTimeout(() => runSearch(q, 0), q ? 250 : 0)
     return () => clearTimeout(timer)
   })
@@ -156,6 +166,12 @@
     selectedArtist = name
     if (scroller) scroller.scrollTop = 0
   }
+
+  function showFolder(path: string) {
+    folderPath = path
+    if (scroller) scroller.scrollTop = 0
+  }
+  const parentFolder = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')))
 
   const sortLabel: Record<SongSort | ArtistSort, MessageKey> = {
     artist: 'room.sortArtist',
@@ -182,10 +198,12 @@
       searchView = v
       storage.set('zkaraver.searchView', v)
       showArtist(null)
+      showFolder('')
     }
     const actions: SheetAction[] = [
       { label: `🎵 ${t('room.viewSongs')}${check(searchView === 'songs')}`, disabled: searchView === 'songs', run: () => setView('songs') },
       { label: `👤 ${t('room.viewArtists')}${check(searchView === 'artists')}`, disabled: searchView === 'artists', run: () => setView('artists') },
+      { label: `📁 ${t('room.viewFolders')}${check(searchView === 'folders')}`, disabled: searchView === 'folders', run: () => setView('folders') },
     ]
     if (listingArtists) {
       for (const s of ARTIST_SORTS)
@@ -636,7 +654,7 @@
         <div class="search-row">
           <input type="search" bind:value={query} placeholder={t('room.searchPlaceholder')} enterkeyhint="search" />
           <button class="sort-btn" onclick={searchMenu} aria-label={t('room.searchOptions')}>
-            {searchView === 'artists' ? '👤' : '⇅'} {currentSortShort}
+            {searchView === 'artists' ? '👤' : searchView === 'folders' ? '📁' : '⇅'} {currentSortShort}
           </button>
         </div>
       {/if}
@@ -668,12 +686,31 @@
             ← {t('room.allArtists')} · <b>{selectedArtist || t('common.unknownArtist')}</b>
           </button>
         {/if}
+        {#if searchView === 'folders'}
+          {#if folderPath}
+            <button class="ghost back-row" onclick={() => showFolder(parentFolder(folderPath))}>
+              ← {t('room.folderUp')} · <b>{folderPath}</b>
+            </button>
+          {/if}
+          <ul class="list artists folders">
+            {#each folders as f (f.name)}
+              <li>
+                <button class="artist-row" onclick={() => showFolder(folderPath ? `${folderPath}/${f.name}` : f.name)}>
+                  <span class="folder-icon" aria-hidden="true">📁</span>
+                  <span class="artist-name"><Marquee text={f.name} /></span>
+                  <span class="muted count">{t('room.artistSongs', { n: f.songs })}</span>
+                  <span class="chev" aria-hidden="true">›</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
         <ul class="list">
           {#each results as s (s.id)}
             {@render songRow(s)}
           {/each}
         </ul>
-        {#if !searching && results.length === 0}
+        {#if !searching && results.length === 0 && (searchView !== 'folders' || folders.length === 0)}
           <p class="muted empty">{t('room.noResults')}</p>
         {/if}
         {#if more}
@@ -1004,6 +1041,9 @@
   }
   .count {
     font-size: 0.85rem;
+  }
+  .folder-icon {
+    font-size: 1.1rem;
   }
   .chev {
     color: var(--muted);
