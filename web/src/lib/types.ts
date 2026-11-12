@@ -22,6 +22,8 @@ export interface RoomSettings {
   mode: QueueMode
   maxPerUser: number
   idleClearMinutes: number
+  /** TV QR code height, percent of the screen height */
+  qrSize: number
 }
 
 export interface Member {

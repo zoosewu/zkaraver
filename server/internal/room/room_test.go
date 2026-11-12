@@ -809,3 +809,26 @@ func TestPlayerReconnectKeepsItsPlace(t *testing.T) {
 		t.Fatalf("players = %d, want 4", len(r.players))
 	}
 }
+
+func TestQRSizeSetting(t *testing.T) {
+	d, m := setup(t)
+	r := newTestRoom(t, m, ModeFIFO)
+	if r.settings.QRSize != DefaultQRSize {
+		t.Fatalf("default QR size %d", r.settings.QRSize)
+	}
+	for _, bad := range []int{MinQRSize - 1, MaxQRSize + 1} {
+		if err := r.UpdateSettings(Settings{Mode: ModeFIFO, QRSize: bad}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("size %d: %v", bad, err)
+		}
+	}
+	if err := r.UpdateSettings(Settings{Mode: ModeFIFO, QRSize: 25}); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := NewManager(d, dbSongs{d})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m2.Get(r.ID); got.settings.QRSize != 25 {
+		t.Fatalf("after restart: %d", got.settings.QRSize)
+	}
+}

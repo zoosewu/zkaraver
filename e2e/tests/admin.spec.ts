@@ -45,6 +45,17 @@ test('admin on a phone: fixed controls, tabs, history loads as you scroll', asyn
   await expect(page.locator('.admin-room .body li')).toHaveCount(1) // queue: one waiting song
   await top.locator('.tabs button', { hasText: '設定' }).click()
   await expect(page.locator('.admin-room .danger-zone')).toBeVisible()
+  // The TV QR size is a room setting.
+  const qrSize = page.locator('.admin-room label', { hasText: 'QR code 大小' }).locator('input')
+  await expect(qrSize).toHaveValue('40')
+  await qrSize.fill('30')
+  await page.locator('.admin-room .settings button.primary').click()
+  await expect
+    .poll(async () => {
+      const rooms = await (await fetch(`${BASE}/api/admin/rooms`, { headers: { Cookie: cookie } })).json()
+      return rooms.find((r: { settings: { name: string } }) => r.settings.name === room)?.settings.qrSize
+    })
+    .toBe(30)
   await top.locator('.tabs button', { hasText: '成員' }).click()
   await expect(page.locator('.admin-room .body li')).toContainText('U')
 

@@ -47,7 +47,16 @@ type Settings struct {
 	Mode             string `json:"mode"`
 	MaxPerUser       int    `json:"maxPerUser"`
 	IdleClearMinutes int    `json:"idleClearMinutes"`
+	// QRSize is the TV's QR code height in percent of the screen height.
+	QRSize int `json:"qrSize"`
 }
+
+// TV QR code size limits (percent of the screen height).
+const (
+	MinQRSize     = 10
+	MaxQRSize     = 60
+	DefaultQRSize = 40
+)
 
 // Room holds the live state of one room in memory; every change is written
 // through to SQLite and then broadcast to subscribers as a full snapshot.
@@ -535,6 +544,12 @@ func (r *Room) Control(userID string, admin bool, action string, value int) erro
 // UpdateSettings changes queue rules. The name is the room id and cannot change.
 func (r *Room) UpdateSettings(s Settings) error {
 	s.Name = r.ID
+	if s.QRSize == 0 {
+		s.QRSize = DefaultQRSize // clients that do not know the setting
+	}
+	if s.QRSize < MinQRSize || s.QRSize > MaxQRSize {
+		return ErrInvalid
+	}
 	if (s.Mode != ModeFIFO && s.Mode != ModeRoundRobin) || s.MaxPerUser < 0 || s.MaxPerUser > 99 ||
 		s.IdleClearMinutes < 0 || s.IdleClearMinutes > 1440 {
 		return ErrInvalid
@@ -547,8 +562,8 @@ func (r *Room) UpdateSettings(s Settings) error {
 			return err
 		}
 	}
-	if err := r.exec(`UPDATE rooms SET queue_mode=?, max_per_user=?, idle_clear_minutes=? WHERE id=?`,
-		s.Mode, s.MaxPerUser, s.IdleClearMinutes, r.ID); err != nil {
+	if err := r.exec(`UPDATE rooms SET queue_mode=?, max_per_user=?, idle_clear_minutes=?, qr_size=? WHERE id=?`,
+		s.Mode, s.MaxPerUser, s.IdleClearMinutes, s.QRSize, r.ID); err != nil {
 		return err
 	}
 	r.settings = s

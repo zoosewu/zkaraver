@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 	max_per_user       INTEGER NOT NULL DEFAULT 0,
 	idle_clear_minutes INTEGER NOT NULL DEFAULT 0,
 	show_qr            INTEGER NOT NULL DEFAULT 1,
+	qr_size            INTEGER NOT NULL DEFAULT 40,
 	volume             INTEGER NOT NULL DEFAULT 100,
 	created_at         INTEGER NOT NULL
 );
@@ -110,7 +111,28 @@ func Open(path string) (*sql.DB, error) {
 		d.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	// Columns added after a table first shipped (CREATE TABLE IF NOT EXISTS skips them).
+	for _, c := range []struct{ table, column, ddl string }{
+		{"rooms", "qr_size", `ALTER TABLE rooms ADD COLUMN qr_size INTEGER NOT NULL DEFAULT 40`},
+	} {
+		if err := addColumn(d, c.table, c.column, c.ddl); err != nil {
+			d.Close()
+			return nil, fmt.Errorf("migrate %s.%s: %w", c.table, c.column, err)
+		}
+	}
 	return d, nil
+}
+
+func addColumn(d *sql.DB, table, column, ddl string) error {
+	var n int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err := d.Exec(ddl)
+	return err
 }
 
 func Setting(d *sql.DB, key string) (string, bool, error) {

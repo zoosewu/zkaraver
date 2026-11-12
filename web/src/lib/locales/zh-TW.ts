@@ -168,6 +168,7 @@ export default {
   'admin.mode': '佇列模式',
   'admin.maxPerUser': '每人最多待唱幾首（0 = 不限）',
   'admin.idleClear': '閒置幾分鐘後清空佇列（0 = 不清空）',
+  'admin.qrSize': '電視 QR code 大小（螢幕高度的 %，10～60）',
   'admin.links': '連結',
   'admin.openPlayer': '開啟播放頁',
   'admin.openRoom': '開啟點歌頁',

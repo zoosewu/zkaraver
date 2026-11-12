@@ -365,6 +365,10 @@
             {t('admin.idleClear')}
             <input type="number" min="0" max="1440" bind:value={form.idleClearMinutes} />
           </label>
+          <label class="field">
+            {t('admin.qrSize')}
+            <input type="number" min="10" max="60" step="5" bind:value={form.qrSize} />
+          </label>
           <div class="row">
             <button class="primary" type="submit" disabled={!dirty}>{t('common.save')}</button>
             <button type="button" disabled={!dirty} onclick={() => (form = { ...room!.settings })}>{t('common.cancel')}</button>

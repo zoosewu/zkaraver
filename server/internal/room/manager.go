@@ -104,7 +104,7 @@ func roomKey(id string) string { return strings.ToLower(id) }
 func NewManager(d *sql.DB, songs SongSource) (*Manager, error) {
 	m := &Manager{db: d, songs: songs, keys: noKeys{}, rooms: map[string]*Room{}}
 
-	rows, err := d.Query(`SELECT id, queue_mode, max_per_user, idle_clear_minutes, show_qr FROM rooms`)
+	rows, err := d.Query(`SELECT id, queue_mode, max_per_user, idle_clear_minutes, show_qr, qr_size FROM rooms`)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func NewManager(d *sql.DB, songs SongSource) (*Manager, error) {
 		var id string
 		var s Settings
 		var showQR bool
-		if err := rows.Scan(&id, &s.Mode, &s.MaxPerUser, &s.IdleClearMinutes, &showQR); err != nil {
+		if err := rows.Scan(&id, &s.Mode, &s.MaxPerUser, &s.IdleClearMinutes, &showQR, &s.QRSize); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -239,7 +239,7 @@ func (m *Manager) Create(name string) (*Room, error) {
 	if m.rooms[roomKey(id)] != nil {
 		return nil, ErrRoomExists
 	}
-	s := Settings{Name: id, Mode: ModeFIFO}
+	s := Settings{Name: id, Mode: ModeFIFO, QRSize: DefaultQRSize}
 	if _, err := m.db.Exec(`INSERT INTO rooms(id, name, queue_mode, created_at) VALUES(?,?,?,?)`, id, id, s.Mode, now()); err != nil {
 		log.Printf("create room: %v", err)
 		return nil, ErrInternal

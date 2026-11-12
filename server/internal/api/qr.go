@@ -19,6 +19,9 @@ var qrLogoPNG []byte
 const (
 	qrSize    = 512
 	qrLogoPad = 10 // white margin around the logo
+	// Quiet zone in modules. The standard asks for 4; 2 still scans reliably and
+	// keeps the white frame around the code small on the TV.
+	qrMargin = 2
 )
 
 // roomQR renders url as a QR code with the app icon in the centre. Highest
@@ -29,9 +32,20 @@ func roomQR(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	src := q.Image(qrSize)
-	img := image.NewRGBA(src.Bounds())
-	draw.Draw(img, img.Bounds(), src, image.Point{}, draw.Src)
+	q.DisableBorder = true
+	bits := q.Bitmap()
+	n := len(bits) + 2*qrMargin
+	scale := max(1, qrSize/n) // whole pixels per module keep the edges crisp
+	img := image.NewRGBA(image.Rect(0, 0, n*scale, n*scale))
+	draw.Draw(img, img.Bounds(), image.White, image.Point{}, draw.Src)
+	for y, row := range bits {
+		for x, on := range row {
+			if on {
+				px := image.Rect(x+qrMargin, y+qrMargin, x+qrMargin+1, y+qrMargin+1)
+				draw.Draw(img, image.Rect(px.Min.X*scale, px.Min.Y*scale, px.Max.X*scale, px.Max.Y*scale), image.Black, image.Point{}, draw.Src)
+			}
+		}
+	}
 
 	logo, err := png.Decode(bytes.NewReader(qrLogoPNG))
 	if err != nil {

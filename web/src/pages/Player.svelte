@@ -495,8 +495,9 @@
       {/if}
 
       {#if loaded && showQR}
-        <aside class="overlay">
-          <img src={qrSrc} alt="QR code" width="120" height="120" />
+        <!-- Top left, clear of the lyrics (usually at the bottom); size set per room. -->
+        <aside class="overlay" style:--qr={`${room?.settings.qrSize ?? 40}vh`}>
+          <img src={qrSrc} alt="QR code" width="512" height="512" />
           {#if upNext}
             <div class="next">
               <div class="kicker">{t('player.comingUp')}</div>
@@ -671,24 +672,25 @@
   /* Middle of the left edge: karaoke lyrics sit along the bottom, so keep clear of them. */
   .overlay {
     position: absolute;
-    left: 2vw;
-    top: 50%;
-    transform: translateY(-50%);
+    left: 2vh;
+    top: 2vh;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 1.5vh;
-    width: 22vw;
+    width: max(var(--qr), 22vw);
   }
+  /* The image carries its own thin white quiet zone. */
   .overlay img {
-    width: 14vh;
-    height: 14vh;
-    background: #fff;
-    padding: 0.8vh;
-    border-radius: 1vh;
+    width: var(--qr);
+    height: var(--qr);
+    border-radius: 0.6vh;
     opacity: 0.92;
   }
   .next {
+    box-sizing: border-box;
+    width: var(--qr);
+    min-width: 22vw;
     background: rgba(0, 0, 0, 0.6);
     padding: 1vh 1.5vw;
     border-radius: 1vh;

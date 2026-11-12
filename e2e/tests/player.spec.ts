@@ -54,10 +54,22 @@ test('player: autoplay, original vocals in sync, overlay, screen kept awake', as
   await expect.poll(async () => (await media(page)).muted).toBe(false)
   expect((await media(page)).aPaused).toBe(true)
 
-  // QR + "coming up" sit in the middle of the left edge, clear of the lyrics.
-  const box = (await page.locator('aside.overlay').boundingBox())!
-  expect(box.x).toBeLessThan(100)
-  expect(Math.abs(box.y + box.height / 2 - 360)).toBeLessThan(40)
+  // QR + "coming up" sit in the top left corner, clear of the lyrics at the bottom;
+  // the QR is 40% of the screen height by default and its size is set per room.
+  const qr = page.locator('aside.overlay img')
+  let box = (await qr.boundingBox())!
+  expect(box.x).toBeLessThan(30)
+  expect(box.y).toBeLessThan(30)
+  expect(Math.round(box.height)).toBe(288) // 40% of 720
+  const put = await fetch(`${BASE}/api/admin/rooms/${room}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ mode: 'fifo', maxPerUser: 0, idleClearMinutes: 0, qrSize: 25 }),
+  })
+  expect(put.status).toBe(204)
+  await expect.poll(async () => Math.round((await qr.boundingBox())!.height)).toBe(180) // 25% of 720
+  box = (await qr.boundingBox())!
+  expect(box.y).toBeLessThan(30)
 
   // Screen stays awake: Wake Lock where allowed (https / localhost), else a muted looping video.
   const secure = await page.evaluate(() => isSecureContext && 'wakeLock' in navigator)

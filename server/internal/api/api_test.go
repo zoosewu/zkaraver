@@ -509,9 +509,19 @@ func TestQRCodeHasLogo(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The centre pixel belongs to the logo (coloured), not a black or white QR module.
-	c := color.RGBAModel.Convert(img.At(qrSize/2, qrSize/2)).(color.RGBA)
+	size := img.Bounds().Dx()
+	c := color.RGBAModel.Convert(img.At(size/2, size/2)).(color.RGBA)
 	if c.R == c.G && c.G == c.B {
 		t.Fatalf("centre pixel %v does not look like the logo", c)
+	}
+	// A thin white frame: the finder pattern starts 2 modules in, not the standard 4.
+	dark := func(x int) bool { r, _, _, _ := img.At(x, x).RGBA(); return r < 0x8000 }
+	edge := 0
+	for edge < size && !dark(edge) {
+		edge++
+	}
+	if edge == 0 || edge > size*qrMargin/25 {
+		t.Fatalf("white frame %dpx of %dpx is too wide", edge, size)
 	}
 }
 
