@@ -1,0 +1,14 @@
+{
+  "01-tv-player": {
+    "zh-TW": "電視播放畫面：左上角是點歌 QR code 和下一首",
+    "en": "TV player: the song-request QR code and the next song sit in the top-left corner"
+  },
+  "02-phone-request": {
+    "zh-TW": "手機點歌：依歌手、資料夾瀏覽曲庫，查看與管理佇列",
+    "en": "Requesting songs from a phone: browse by artist or folder, then check the queue"
+  },
+  "03-admin": {
+    "zh-TW": "管理頁面：曲庫掃描、房間、播放控制與佇列管理",
+    "en": "Admin page: library scan, rooms, playback controls and queue management"
+  }
+}

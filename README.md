@@ -4,9 +4,12 @@
 
 自架的多房間卡拉 OK 點歌系統。手機掃 QR code 點歌，電視或電腦上開播放頁。
 
-- **點歌頁** `/r/<房間名稱>`：匿名加入（只需暱稱）、搜尋點歌、我的最愛、看佇列、刪自己的歌、切歌；輪到自己時可暫停、重唱、調音量、切換原唱／伴唱、隱藏 QR code
-- **播放頁** `/r/<房間名稱>/player`：不需登入，打開就自動運作；先到先播，後開的排隊遞補。全螢幕播放、螢幕常亮、換歌前 5 秒預告、角落顯示 QR code 與下一首、待機時顯示大 QR code
-- **管理頁** `/admin`：建立／刪除房間、查看與中斷播放端、佇列模式（依點歌順序／輪流制）、調整順序、踢人、每人點歌上限、閒置自動清空、演唱紀錄、重新掃描曲庫
+<p align="center"><img src="docs/screenshots/01-tv-player.png" width="720" alt="電視播放畫面"></p>
+<p align="center"><img src="docs/screenshots/02-phone-request.png" width="720" alt="手機點歌"></p>
+
+- **點歌頁** `/r/<房間名稱>`：匿名加入（只需暱稱）；依歌曲、歌手或資料夾瀏覽曲庫並搜尋點歌，可依歌手、歌名、最新、熱門排序；我的最愛、看佇列、刪自己的歌、切歌；輪到自己時可暫停、重唱、調音量、切換原唱／伴唱、升降 key、隱藏 QR code
+- **播放頁** `/r/<房間名稱>/player`：不需登入，打開就自動運作；先到先播，後開的排隊遞補。全螢幕播放、螢幕常亮、換歌前 5 秒預告、左上角顯示 QR code 與下一首（大小可在管理頁調整）、待機時顯示大 QR code
+- **管理頁** `/admin`：建立／刪除房間、查看與中斷播放端、播放控制（暫停、重唱、切歌、速度、前後 3 秒、升降 key、原唱）、佇列模式（依點歌順序／輪流制）、調整順序、踢人、每人點歌上限、閒置自動清空、電視 QR code 大小、演唱紀錄、重新掃描曲庫
 
 ## 部署
 
@@ -99,6 +102,8 @@ Image 放在 `ghcr.io/zoosewu/zkaraver`，支援 `linux/amd64` 和 `linux/arm64`
 | `1.2.3`、`1.2`、`1` | 發行版（推送 `v1.2.3` 這種 git tag 時產生） |
 | `sha-abc1234` | 特定 commit |
 
+`slim` 版的標籤都加上 `-slim`：`slim`、`1.2.3-slim`、`1.2-slim`、`1-slim`、`sha-abc1234-slim`。
+
 要固定版本時，把 `image` 改成 `ghcr.io/zoosewu/zkaraver:1.2.3`；使用 `.env` 的話，則設定 `ZKARAVER_TAG=1.2.3`。
 
 如果想從原始碼自己建置：
@@ -119,26 +124,30 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 | `FILENAME_SEPARATOR` | 歌手和歌名之間的分隔字串，預設 `" - "`。找不到分隔字串時，整個檔名會當成歌名 |
 | `ORIGINAL_SUFFIX` | 原唱版檔名的後綴，留空表示不啟用，見「曲庫」 |
 | `MEDIA_EXTENSIONS` | 要掃描的副檔名，預設 `.mp4,.m4v,.webm`（瀏覽器普遍能播的格式），見「曲庫」 |
+| `KEYS_DIR` | 容器內存放變調音軌的位置；沒設定時放在 `/data/keycache`。repo 的 compose 檔固定設為 `/keys` |
+| `KEYS_PATH` | 僅限 `.env` 版本：主機上存放變調音軌的資料夾，預設 `./keys` |
 
 用反向代理（Caddy、Nginx、Traefik）提供 HTTPS 時，`PUBLIC_URL` 要填代理後的網址。代理需要支援 WebSocket（路徑 `/api/rooms/*/ws`）。
 
 Image 內建健康檢查（`/healthz`，同時檢查資料庫連線），`docker ps` 會顯示 `healthy` 或 `unhealthy`。
 
-需要進容器查看狀況時（image 以 Alpine 為基底）：
+需要進容器查看狀況時（`latest` 以 Debian 為基底，`slim` 以 Alpine 為基底）：
 
 ```sh
 docker compose exec zkaraver sh
-# 例如：ls /media、ls -la /data，或 apk add sqlite 後執行 sqlite3 /data/zkaraver.db
+# 例如：ls /media、ls -la /data、ls /keys
 ```
+
+變調音軌的製作進度會寫在容器的 log（`docker compose logs -f`），例如目前在做哪首歌、曲庫還剩多少、預估多久做完。
 
 ### 曲庫
 
 - 容器啟動時會自動掃描一次，之後新增檔案請到管理頁按「重新掃描」。
-- 會掃描所有子資料夾，但資料夾結構不影響分類，只會解析檔名。名稱以 `.` 開頭的檔案和資料夾會被略過。
+- 會掃描所有子資料夾。歌手和歌名只從檔名解析，資料夾結構則用在點歌頁的「依資料夾瀏覽」，可以照你整理好的資料夾一層層點進去選歌。名稱以 `.` 開頭的檔案和資料夾會被略過。
 - **符號連結**：會跟隨指向檔案和資料夾的符號連結。循環連結不會造成無限掃描；兩個連結指向同一個資料夾時，只會列出一次。注意容器只看得到有掛載進去的路徑，連結的目標必須也在容器內：建議在歌曲資料夾裡使用**相對路徑**的連結，或者把連結目標用相同的絕對路徑一起掛載進容器（例如 `- /mnt/nas:/mnt/nas:ro`）。
 - **副檔名**：系統不轉檔，影片直接交給瀏覽器播放，所以只列出瀏覽器普遍能播的 `.mp4`、`.m4v`、`.webm`。如果你的播放端瀏覽器能播 `.mkv`，可以用 `MEDIA_EXTENSIONS=.mp4,.m4v,.webm,.mkv` 加進來。副檔名只是初步篩選，例如 H.265 編碼的 `.mp4` 在部分瀏覽器上還是播不了，播不了的歌會自動跳過。
 - 影片會以 HTTP Range 直接串流原始檔，不轉檔。請使用瀏覽器能播放的 H.264/AAC 格式；H.265 在部分瀏覽器上無法播放。
-- **原唱／伴唱切換**：設定 `ORIGINAL_SUFFIX=_original` 後，`周杰倫 - 晴天_original.mp4` 不會出現在歌單裡，而是成為 `周杰倫 - 晴天.mp4` 的原唱版。播放這首歌時，點歌者或管理員可以在手機上切換成「原唱」：畫面維持伴唱影片，聲音改用原唱檔的音軌，兩者會持續對時（誤差超過 0.3 秒就自動校正）。**兩個檔案的時間軸必須一致**，否則歌詞和歌聲會對不上。每首歌開始時都會回到伴唱。
+- **原唱／伴唱切換**：設定 `ORIGINAL_SUFFIX=_original` 後，`周杰倫 - 晴天_original.m4a` 不會出現在歌單裡，而是成為 `周杰倫 - 晴天.mp4` 的原唱版。原唱檔只會用到聲音，所以除了影片格式，也可以是 `.m4a`、`.mp3`、`.aac`、`.ogg`、`.opus` 音訊檔（建議 `.m4a`：檔案小、跳轉準確）；同一首歌同時有音訊檔和影片時，優先使用音訊檔。播放這首歌時，點歌者或管理員可以在手機上切換成「原唱」：畫面維持伴唱影片，聲音改用原唱檔，兩者會持續對時（誤差小時微調播放速度追上，超過 1 秒直接跳到正確位置）。切換時新的音軌先靜音載入，開始播放後才換過去，不會中斷。**兩個檔案的時間軸必須一致**，否則歌詞和歌聲會對不上。每首歌開始時都會回到伴唱。
 - **升 key／降 key**：點歌者（手機的「⋯」）或管理員可以一次調一個半音，範圍 ±6，每首歌開始時回到原調。伺服器用 Rubber Band 預先把歌曲做成各個 key 的音軌（快速模式用 ffmpeg 內建的 R2 引擎，最高品質用 R3 引擎，約慢 4 倍但聲音乾淨許多），電視播放時影片靜音、同步播放音軌，所以電視不需要運算，切換也是即時的。背景只有一個執行緒依序製作：佇列中的歌（越靠近越先，先 ±1～±3 再 ±4～±6）用快速模式 → 同樣的歌換成最高品質 → 曲庫其他歌（新的先）用最高品質。正在唱的歌切到還沒做好的 key 時，電視中間會短暫提示並先播原調，那個 key 會插隊優先製作，做好後自動切換。原唱不變調。製作好的音軌放在 `KEYS_DIR`（上面的 compose 範例是 `./keys`；沒設定時放在 `data/keycache`），每首歌約 80 MB。歌曲影片更換或刪除後，下次掃描曲庫（啟動時或管理頁的「重新掃描」）會刪掉舊的音軌，更換過的歌會排在曲庫製作的最前面重新製作。需要 `latest` 映像檔。
 - **速度與前後 3 秒**（管理頁）：速度 0.50～1.50 倍、每次 0.05，音高不變，每首歌開始時回到 1.00×；⏪／⏩ 一次跳 3 秒，原唱音軌會跟著跳。
 
@@ -207,7 +216,7 @@ cd web && npm run check
 
 ### 端對端測試
 
-`e2e/` 用 Playwright 開 Google Chrome，對真正的 image 測試手機點歌頁、電視配對、播放（原唱同步、自動播放）、管理頁和 QR code。CI 每次推送都會跑，沒過就不會發佈 image。
+`e2e/` 用 Playwright 開 Google Chrome，對真正的 image 測試手機點歌頁（搜尋、資料夾瀏覽、佇列）、電視配對、播放（原唱同步、升降 key、自動播放）、管理頁和 QR code（實際掃描）。CI 每次推送都會跑，沒過就不會發佈 image。
 
 ```sh
 e2e/make-media.sh   # 用 Docker 裡的 ffmpeg 產生測試歌庫到 e2e/media
@@ -215,6 +224,7 @@ cat > .env <<'EOF'
 PUBLIC_URL=http://localhost:8088
 ADMIN_PASSWORD=test-pass
 MEDIA_PATH=./e2e/media
+KEYS_PATH=./e2e/keys
 PORT=8088
 ORIGINAL_SUFFIX=_original
 EOF
@@ -222,7 +232,17 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build -
 cd e2e && npm ci && npx playwright install chrome && npx playwright test
 ```
 
-架構：Go（`net/http`、`coder/websocket`、純 Go 的 SQLite）+ Svelte 5，前端打包後嵌入 Go 執行檔，最終產出約 30 MB 的 Alpine image。房間狀態放在記憶體中，同時寫入 SQLite；有變動時透過 WebSocket 推送完整快照給所有連線。
+### 截圖
+
+`docs/screenshots/` 是作品集用的截圖（1280 × 800），畫面用的是虛構的歌曲和歌詞。介面改了之後重新產生：
+
+```sh
+e2e/make-demo-media.sh   # 產生示範歌庫到 e2e/demo-media
+# 用全新的資料庫啟動伺服器：PUBLIC_URL=http://localhost:8088、ADMIN_PASSWORD=test-pass、MEDIA_PATH=./e2e/demo-media
+cd e2e && npx playwright test -c playwright.screenshots.config.ts
+```
+
+架構：Go（`net/http`、`coder/websocket`、純 Go 的 SQLite）+ Svelte 5，前端打包後嵌入 Go 執行檔。`latest` 是 Debian 加上 ffmpeg 和 Rubber Band（升降 key 用），`slim` 是只有執行檔的 Alpine。房間狀態放在記憶體中，同時寫入 SQLite；有變動時透過 WebSocket 推送完整快照給所有連線。升降 key 的音軌由 `server/internal/keys` 的單一背景執行緒依優先順序製作。
 
 介面文字放在 `web/src/lib/locales/`。要新增語言，複製 `zh-TW.ts` 後在 `web/src/lib/i18n.ts` 註冊即可。
 
@@ -231,7 +251,8 @@ cd e2e && npm ci && npx playwright install chrome && npx playwright test
 `.github/workflows/ci.yml` 的流程：
 
 1. **測試**：每次 push 和 PR 都會執行 `gofmt`、`go vet`、`go test`、`svelte-check` 和前端建置。
-2. **建置 image**：測試通過後建置 amd64 和 arm64 的 image。只有推送到 `main` 或推送 `v*` tag 時才會上傳到 GHCR，PR 只建置不上傳。
+2. **端對端測試**：建置 image 並用 Playwright 跑 `e2e/`（見「端對端測試」）。
+3. **建置 image**：前兩項都通過後，建置 `latest` 和 `slim` 兩種 image（amd64 和 arm64）。只有推送到 `main` 或推送 `v*` tag 時才會上傳到 GHCR，PR 只建置不上傳。
 
 發行新版本：
 
