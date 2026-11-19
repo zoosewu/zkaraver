@@ -238,3 +238,8 @@ cd e2e && npm ci && npx playwright install chrome && npx playwright test
 ```sh
 git tag v1.0.0 && git push origin v1.0.0
 ```
+
+## 授權
+
+程式碼以 [GNU AGPL-3.0](LICENSE) 授權。映像內的 ffmpeg、Rubber Band 與各 Go／npm 套件依其各自的授權。
+歌曲、影片與歌詞的著作權屬於原作者，本專案不包含也不散布這些內容。
